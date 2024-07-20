@@ -8,7 +8,9 @@ TARGET_MAIN = main
 TARGET_INPUT = input.bin
 TARGET_TEST = test.bin
 
-all: $(TARGET_MAIN) $(TARGET_INPUT) $(TARGET_TEST)
+TARGETS = $(TARGET_MAIN) $(TARGET_INPUT) $(TARGET_TEST) $(TARGET_INPUT_TERRUPT) kvm
+
+all: $(TARGETS)
 
 $(TARGET_MAIN): main.o
 	$(CC) main.o -o $(TARGET_MAIN)
@@ -21,6 +23,9 @@ $(TARGET_INPUT): input.o
 input.o: input.S
 	nasm -f bin input.S -o input.bin
 
+kvm: kvm.c
+	gcc -Wall kvm.c -o kvm
+
 $(TARGET_TEST): test.o
 	$(OBJCOPY) -O binary test.o $(TARGET_TEST)
 
@@ -28,6 +33,6 @@ test.o: test.S
 	$(AS) $(ASFLAGS) test.S -o test.o
 
 clean:
-	rm -f *.o $(TARGET_MAIN) $(TARGET_INPUT) $(TARGET_TEST)
+	rm -f *.o $(TARGETS)
 
 .PHONY: all clean
