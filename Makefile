@@ -8,7 +8,7 @@ TARGET_MAIN = main
 TARGET_INPUT = input.bin
 TARGET_TEST = test.bin
 
-TARGETS = $(TARGET_MAIN) $(TARGET_INPUT) $(TARGET_TEST) $(TARGET_INPUT_TERRUPT) kvm
+TARGETS = $(TARGET_MAIN) $(TARGET_INPUT) $(TARGET_TEST) $(TARGET_INPUT_TERRUPT) kvm boot.bin
 
 all: $(TARGETS)
 
@@ -22,6 +22,9 @@ $(TARGET_INPUT): input.o
 
 input.o: input.S
 	nasm -f bin input.S -o input.bin
+
+boot.bin: boot.S
+	nasm -f bin boot.S -o boot.bin
 
 kvm: kvm.c
 	gcc -Wall kvm.c -o kvm

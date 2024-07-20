@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -6,10 +7,13 @@
 #include <sys/mman.h>
 #include <linux/kvm.h>
 #include <sys/ioctl.h>
+#include <stdint.h>
 
 #define KVM_DEV "/dev/kvm"
 #define MEMORY_SIZE (1 << 21)  // 2MB
 #define VGA_START 0xB8000
+#define BIOS_ENTRY 0xFFFF0
+#define BOOT_SECTOR 0x7C00
 
 int kvm_fd, vm_fd, vcpu_fd;
 void *guest_memory;
@@ -75,38 +79,44 @@ void setup_kvm() {
 
 void setup_cpu() {
     struct kvm_sregs sregs;
-    if (ioctl(vcpu_fd, KVM_GET_SREGS, &sregs) < 0) {
-        perror("KVM_GET_SREGS");
-        exit(1);
-    }
+    struct kvm_regs regs;
 
-    sregs.cs.base = 0;
-    sregs.cs.selector = 0;
-    sregs.ds.base = 0;
-    sregs.ds.selector = 0;
-    sregs.es.base = 0;
-    sregs.es.selector = 0;
-    sregs.fs.base = 0;
-    sregs.fs.selector = 0;
-    sregs.gs.base = 0;
-    sregs.gs.selector = 0;
-    sregs.ss.base = 0;
-    sregs.ss.selector = 0;
+    ioctl(vcpu_fd, KVM_GET_SREGS, &sregs);
+    ioctl(vcpu_fd, KVM_GET_REGS, &regs);
 
-    if (ioctl(vcpu_fd, KVM_SET_SREGS, &sregs) < 0) {
-        perror("KVM_SET_SREGS");
-        exit(1);
-    }
+    // CS:IP = 0xF000:FFF0
+    sregs.cs.base = 0xF0000;
+    sregs.cs.selector = 0xF000;
+    regs.rip = 0xFFF0;
 
-    struct kvm_regs regs = {
-        .rip = 0,
-        .rflags = 0x2,
+    sregs.ds.base = sregs.es.base = sregs.fs.base = sregs.gs.base = sregs.ss.base = 0;
+    sregs.ds.selector = sregs.es.selector = sregs.fs.selector = sregs.gs.selector = sregs.ss.selector = 0;
+
+    ioctl(vcpu_fd, KVM_SET_SREGS, &sregs);
+    ioctl(vcpu_fd, KVM_SET_REGS, &regs);
+}
+
+void load_bios() {
+    uint8_t bios_code[] = {
+        0xEA, 0x00, 0x7C, 0x00, 0x00  // JMP 0000:7C00
     };
+    memcpy(guest_memory + BIOS_ENTRY, bios_code, sizeof(bios_code));
+}
 
-    if (ioctl(vcpu_fd, KVM_SET_REGS, &regs) < 0) {
-        perror("KVM_SET_REGS");
+void load_boot_sector(const char *filename) {
+    FILE *file = fopen(filename, "rb");
+    if (!file) {
+        perror("Failed to open boot sector file");
         exit(1);
     }
+
+    size_t read = fread(guest_memory + BOOT_SECTOR, 1, 512, file);
+    if (read != 512) {
+        fprintf(stderr, "Failed to read full boot sector\n");
+        exit(1);
+    }
+
+    fclose(file);
 }
 
 void run_cpu() {
@@ -152,41 +162,20 @@ void read_vga_from_host(int n) {
     printf("\n");
 }
 
-int main() {
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s boot.bin\n", argv[0]);
+        return 1;
+    }
+
     setup_kvm();
     setup_cpu();
-
-    unsigned char code[] = {
-        0xb8, 0x00, 0xb8,       // mov ax, 0xb800
-        0x8e, 0xd8,             // mov ds, ax
-        0x8e, 0xc0,             // mov es, ax
-
-        // Write "VM" to VGA
-        0xc6, 0x06, 0x00, 0x00, 'V',  // mov byte [0x0000], 'V'
-        0xc6, 0x06, 0x01, 0x00, 0x07, // mov byte [0x0001], 0x07
-        0xc6, 0x06, 0x02, 0x00, 'M',  // mov byte [0x0002], 'M'
-        0xc6, 0x06, 0x03, 0x00, 0x07, // mov byte [0x0003], 0x07
-
-        // Write "HELLO" to VGA
-        0xc6, 0x06, 0x04, 0x00, 'H',  // mov byte [0x0004], 'H'
-        0xc6, 0x06, 0x05, 0x00, 0x07, // mov byte [0x0005], 0x07
-        0xc6, 0x06, 0x06, 0x00, 'E',  // mov byte [0x0006], 'E'
-        0xc6, 0x06, 0x07, 0x00, 0x07, // mov byte [0x0007], 0x07
-        0xc6, 0x06, 0x08, 0x00, 'L',  // mov byte [0x0008], 'L'
-        0xc6, 0x06, 0x09, 0x00, 0x07, // mov byte [0x0009], 0x07
-        0xc6, 0x06, 0x0a, 0x00, 'L',  // mov byte [0x000a], 'L'
-        0xc6, 0x06, 0x0b, 0x00, 0x07, // mov byte [0x000b], 0x07
-        0xc6, 0x06, 0x0c, 0x00, 'O',  // mov byte [0x000c], 'O'
-        0xc6, 0x06, 0x0d, 0x00, 0x07, // mov byte [0x000d], 0x07
-
-        0xf4                    // hlt
-    };
-
-    memcpy(guest_memory, code, sizeof(code));
+    load_bios();
+    load_boot_sector(argv[1]);
 
     run_cpu();
 
-    read_vga_from_host(7);
+    read_vga_from_host(11);
 
     munmap(run, ioctl(kvm_fd, KVM_GET_VCPU_MMAP_SIZE, NULL));
     munmap(guest_memory, MEMORY_SIZE);
