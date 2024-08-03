@@ -32,6 +32,21 @@ void setup_kvm() {
         exit(1);
     }
 
+/*
+    if (ioctl(vm_fd, KVM_CREATE_IRQCHIP) < 0) {
+        perror("KVM_CREATE_IRQCHIP");
+        exit(1);
+    }
+
+    struct kvm_pit_config pit = {
+        .flags = 0,
+    };
+    if (ioctl(vm_fd, KVM_CREATE_PIT2, &pit) < 0) {
+        perror("KVM_CREATE_PIT2");
+        exit(1);
+    }
+*/
+
     guest_memory = mmap(NULL, MEMORY_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     if (guest_memory == MAP_FAILED) {
         perror("Unable to allocate guest memory");
@@ -120,10 +135,38 @@ void load_boot_sector(const char *filename) {
 }
 
 void run_cpu() {
+    struct kvm_guest_debug debug = {
+        .control = KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_SINGLESTEP | KVM_GUESTDBG_USE_SW_BP,
+    };
+
+    if (ioctl(vcpu_fd, KVM_SET_GUEST_DEBUG, &debug) < 0) {
+        perror("KVM_SET_GUEST_DEBUG");
+    }
+
     while (1) {
+        struct kvm_regs regs;
+        struct kvm_sregs sregs;
+        if (ioctl(vcpu_fd, KVM_GET_REGS, &regs) == 0 && ioctl(vcpu_fd, KVM_GET_SREGS, &sregs) == 0) {
+            printf("RIP: 0x%llx, AX: 0x%llx, DI: 0x%llx\n", regs.rip, regs.rax, regs.rdi);
+            printf("CS base: 0x%llx, CS selector: 0x%x\n", sregs.cs.base, sregs.cs.selector);
+            printf("ES base: 0x%llx, ES selector: 0x%x\n", sregs.es.base, sregs.es.selector);
+            printf("EFLAGS: 0x%llx\n", regs.rflags);
+        } else {
+            perror("KVM_GET_REGS");
+        }
+
         if (ioctl(vcpu_fd, KVM_RUN, NULL) < 0) {
             perror("KVM_RUN");
             exit(1);
+        }
+
+        if (ioctl(vcpu_fd, KVM_GET_REGS, &regs) == 0 && ioctl(vcpu_fd, KVM_GET_SREGS, &sregs) == 0) {
+            printf("RIP: 0x%llx, AX: 0x%llx, DI: 0x%llx\n", regs.rip, regs.rax, regs.rdi);
+            printf("CS base: 0x%llx, CS selector: 0x%x\n", sregs.cs.base, sregs.cs.selector);
+            printf("ES base: 0x%llx, ES selector: 0x%x\n", sregs.es.base, sregs.es.selector);
+            printf("EFLAGS: 0x%llx\n", regs.rflags);
+        } else {
+            perror("KVM_GET_REGS");
         }
 
         switch (run->exit_reason) {
@@ -131,6 +174,53 @@ void run_cpu() {
                 printf("CPU halted\n");
                 return;
             case KVM_EXIT_IO:
+                // Emulate 8259A PIC
+                printf("IO port: 0x%x, direction: %s, size: %u, data offset: %llu\n",
+                       run->io.port, run->io.direction == KVM_EXIT_IO_OUT ? "OUT" : "IN",
+                       run->io.size, run->io.data_offset);
+                if (run->io.direction == KVM_EXIT_IO_OUT) {
+                    if (run->io.port == 0x20 || run->io.port == 0x21 ||
+                        run->io.port == 0xA0 || run->io.port == 0xA1) {
+                        // Handle PIC command and data ports
+                        uint8_t value = *(((char *)run) + run->io.data_offset);
+                        printf("8259A PIC: OUT port 0x%x, value 0x%x\n", run->io.port, value);
+                        // Here you would update the PIC state
+                    }
+                } else if (run->io.direction == KVM_EXIT_IO_IN) {
+                    if (run->io.port == 0x20 || run->io.port == 0x21 ||
+                        run->io.port == 0xA0 || run->io.port == 0xA1) {
+                        // Handle PIC status read
+                        uint8_t value = 0; // Default value, should be based on PIC state
+                        printf("8259A PIC: IN port 0x%x, returning 0x%x\n", run->io.port, value);
+                        *(((char *)run) + run->io.data_offset) = value;
+                    }
+                }
+                // Emulate 8253/8254 PIT (Programmable Interval Timer)
+                if (run->io.port >= 0x40 && run->io.port <= 0x43) {
+                    if (run->io.direction == KVM_EXIT_IO_OUT) {
+                        uint8_t value = *(((char *)run) + run->io.data_offset);
+                        printf("8253 PIT: OUT port 0x%x, value 0x%x\n", run->io.port, value);
+                        // Here you would update the PIT state
+                        // For example, handle different PIT modes, set counter values, etc.
+                    } else if (run->io.direction == KVM_EXIT_IO_IN) {
+                        uint8_t value = 0; // Default value, should be based on PIT state
+                        printf("8253 PIT: IN port 0x%x, returning 0x%x\n", run->io.port, value);
+                        *(((char *)run) + run->io.data_offset) = value;
+                        // Here you would read the current counter value or status
+                    }
+                }
+                // Handle keyboard controller ports
+                if (run->io.port == 0x60 || run->io.port == 0x64) {
+                    if (run->io.direction == KVM_EXIT_IO_OUT) {
+                        uint8_t value = *(((char *)run) + run->io.data_offset);
+                        printf("Keyboard controller: OUT port 0x%x, value 0x%x\n", run->io.port, value);
+                        // Here you would update the keyboard controller state
+                    } else if (run->io.direction == KVM_EXIT_IO_IN) {
+                        uint8_t value = 0; // Default value, should be based on keyboard state
+                        printf("Keyboard controller: IN port 0x%x, returning 0x%x\n", run->io.port, value);
+                        *(((char *)run) + run->io.data_offset) = value;
+                    }
+                }
                 if (run->io.direction == KVM_EXIT_IO_OUT && run->io.port == 0x3f8) {
                     putchar(*(((char *)run) + run->io.data_offset));
                 }
@@ -145,6 +235,27 @@ void run_cpu() {
                         memcpy(run->mmio.data, guest_memory + run->mmio.phys_addr, run->mmio.len);
                     }
                 }
+                break;
+            case KVM_EXIT_DEBUG:
+                if (ioctl(vcpu_fd, KVM_GET_REGS, &regs) == 0 && ioctl(vcpu_fd, KVM_GET_SREGS, &sregs) == 0) {
+                    printf("RIP: 0x%llx, AX: 0x%llx, DI: 0x%llx\n", regs.rip, regs.rax, regs.rdi);
+                    printf("ES base: 0x%llx, ES selector: 0x%x\n", sregs.es.base, sregs.es.selector);
+                }
+                printf("GDT base: 0x%llx, limit: 0x%x\n", sregs.gdt.base, sregs.gdt.limit);
+                printf("IDT base: 0x%llx, limit: 0x%x\n", sregs.idt.base, sregs.idt.limit);
+
+                if (regs.rip == 0x7c42) {
+                    char *vga_mem = guest_memory + VGA_START;
+                    printf("VGA Memory Content: ");
+                    for (int i = 0; i < 8; i++) {
+                        printf("%c", vga_mem[i * 2]);
+                    }
+                    printf("\n");
+                }
+                break;
+
+            case KVM_EXIT_SHUTDOWN:
+                printf("KVM_EXIT_SHUTDOWN\n");
                 break;
             default:
                 printf("Unhandled exit reason: %d\n", run->exit_reason);
