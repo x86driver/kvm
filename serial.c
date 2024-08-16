@@ -56,13 +56,6 @@ static inline void ioport__write32(uint32_t *data, uint32_t value)
     *data		 = __cpu_to_le32(value);
 }
 
-struct device_header {
-    enum device_bus_type	bus_type;
-    void			*data;
-    int			dev_num;
-    struct rb_node		node;
-};
-
 struct device_bus {
     struct rb_root	root;
     int		dev_num;

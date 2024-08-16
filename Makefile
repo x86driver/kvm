@@ -45,7 +45,7 @@ serial.o:serial.c
 kvm.o:kvm.c
 	gcc -g -Wall -c -o $@ $<
 
-kvm: kvm.o rbtree.o bios-rom.o term.o serial.o
+kvm: kvm.o rbtree.o bios-rom.o term.o serial.o mptable.o
 	gcc -g -Wall -o $@ $^
 
 $(TARGET_TEST): test.o

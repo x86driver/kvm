@@ -21,6 +21,7 @@
 #include "i8042.h"
 #include "devices.h"
 #include "term.h"
+#include "mptable.h"
 
 #define KVM_DEV "/dev/kvm"
 
@@ -928,7 +929,7 @@ int main(int argc, char **argv) {
     struct kvm *kvm = calloc(sizeof(struct kvm), 1);
     kvm->kernel_filename = argv[1];
     kvm->initrd_filename = argv[2];
-    kvm->nrcpus = 2;
+    kvm->nrcpus = 32;
 
     setup_kvm(kvm);
     kvm_ram__init(kvm);
@@ -939,6 +940,12 @@ int main(int argc, char **argv) {
     }
 
     kvm__setup_bios(kvm);
+
+    if (mptable__init(kvm) < 0) {
+        fprintf(stderr, "Failed to initialize MP table\n");
+        return 1;
+    }
+
     if (kvm_cpu__init(kvm) < 0) {
         fprintf(stderr, "Failed to initialize CPU\n");
         return 1;
