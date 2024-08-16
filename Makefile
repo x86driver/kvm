@@ -1,33 +1,43 @@
-CC = g++
+CC = gcc
 AS = as
 OBJCOPY = objcopy
 CFLAGS = -Wall -g
 ASFLAGS =
 
-TARGET_MAIN = main
 TARGET_INPUT = input.bin
 TARGET_TEST = test.bin
+TARGET_INPUT_TERRUPT = input_interrupt.bin
 
-TARGETS = $(TARGET_MAIN) $(TARGET_INPUT) $(TARGET_TEST) $(TARGET_INPUT_TERRUPT) kvm boot.bin
+TARGETS = $(TARGET_INPUT) $(TARGET_TEST) $(TARGET_INPUT_TERRUPT) kvm boot.bin pit.bin bios.bin apic.bin
 
 all: $(TARGETS)
 
-$(TARGET_MAIN): main.o
-	$(CC) main.o -o $(TARGET_MAIN)
-
-main.o: main.cpp
-	$(CC) $(CFLAGS) -c main.cpp -o main.o
-
-$(TARGET_INPUT): input.o
-
-input.o: input.S
+$(TARGET_INPUT): input.S
 	nasm -f bin input.S -o input.bin
+
+$(TARGET_INPUT_TERRUPT): input_interrupt.S
+	nasm -f bin input_interrupt.S -o input_interrupt.bin
+
+bios.bin: bios.S
+	nasm -f bin bios.S -o bios.bin
+
+pit.bin: pit.S
+	nasm -f bin pit.S -o pit.bin
+
+apic.bin: apic.S
+	nasm -f bin apic.S -o apic.bin
 
 boot.bin: boot.S
 	nasm -f bin boot.S -o boot.bin
 
-kvm: kvm.c
-	gcc -Wall kvm.c -o kvm
+rbtree.o:rbtree.c
+	gcc -g -Wall -c -o $@ $<
+
+kvm.o:kvm.c
+	gcc -g -Wall -c -o $@ $<
+
+kvm: kvm.o rbtree.o bios-rom.o
+	gcc -g -Wall -o $@ $^
 
 $(TARGET_TEST): test.o
 	$(OBJCOPY) -O binary test.o $(TARGET_TEST)
