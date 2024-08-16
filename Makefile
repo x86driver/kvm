@@ -8,7 +8,7 @@ TARGET_INPUT = input.bin
 TARGET_TEST = test.bin
 TARGET_INPUT_TERRUPT = input_interrupt.bin
 
-TARGETS = $(TARGET_INPUT) $(TARGET_TEST) $(TARGET_INPUT_TERRUPT) kvm boot.bin pit.bin bios.bin apic.bin
+TARGETS = kvm
 
 all: $(TARGETS)
 
