@@ -33,10 +33,19 @@ boot.bin: boot.S
 rbtree.o:rbtree.c
 	gcc -g -Wall -c -o $@ $<
 
+mptable.o:mptable.c
+	gcc -g -Wall -c -o $@ $<
+
+term.o:term.c
+	gcc -g -Wall -c -o $@ $<
+
+serial.o:serial.c
+	gcc -g -Wall -c -o $@ $<
+
 kvm.o:kvm.c
 	gcc -g -Wall -c -o $@ $<
 
-kvm: kvm.o rbtree.o bios-rom.o
+kvm: kvm.o rbtree.o bios-rom.o term.o serial.o
 	gcc -g -Wall -o $@ $^
 
 $(TARGET_TEST): test.o

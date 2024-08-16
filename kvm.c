@@ -16,13 +16,16 @@
 #include <errno.h>
 #include <limits.h>
 #include "kvm.h"
-#include "devices.h"
 #include "rbtree.h"
 #include "mmio.h"
-#include "terminal.h"
 #include "i8042.h"
+#include "devices.h"
+#include "term.h"
 
 #define KVM_DEV "/dev/kvm"
+
+void serial8250__update_consoles(struct kvm *kvm);
+int serial8250__init(struct kvm *kvm);
 
 struct kvm_cpu *kvm_cpu__arch_init(struct kvm *kvm, unsigned long cpu_id) {
 
@@ -279,7 +282,7 @@ static struct mmio_mapping *mmio_search_single(struct rb_root *root, uint64_t ad
 }
 
 static void mmio_remove(struct rb_root *root, struct mmio_mapping *data) {
-    rb_erase(&data->node, root);
+    rb_erase(&data->node.node, root);
 }
 
 static void mmio_deregister(struct kvm *kvm, struct rb_root *root, struct mmio_mapping *mmio) {
@@ -367,78 +370,6 @@ int kvm__deregister_iotrap(struct kvm *kvm, uint64_t phys_addr, unsigned int fla
     pthread_mutex_unlock(&mmio_lock);
 
     return 1;
-}
-
-void serial8250__update_consoles(struct kvm *kvm)
-{
-    unsigned int i;
-
-    for (i = 0; i < 4; i++) {
-        struct serial8250_device *dev = &devices[i];
-
-        pthread_mutex_lock(&dev->mutex);
-
-        /* Restrict sysrq injection to the first port */
-        serial8250__receive(kvm, dev, i == 0);
-
-        serial8250_update_irq(kvm, dev);
-
-        pthread_mutex_unlock(&dev->mutex);
-    }
-}
-
-int serial8250__init(struct kvm *kvm) {
-    unsigned int i;
-    int r = 0;
-
-    for (i = 0; i < 4; i++) {
-        struct serial8250_device *dev = &devices[i];
-
-        r = kvm__register_iotrap(kvm, dev->iobase, 8, serial8250_mmio, dev,
-                 SERIAL8250_BUS_TYPE);
-        if (r < 0)
-            break;
-    }
-
-    return r;
-}
-
-int term_init(struct kvm *kvm)
-{
-    struct termios term;
-    int i, r;
-
-    for (i = 0; i < 4; i++)
-        if (term_fds[i][0] == 0) {
-            term_fds[i][0] = STDIN_FILENO;
-            term_fds[i][1] = STDOUT_FILENO;
-        }
-
-    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO))
-        return 0;
-
-    r = tcgetattr(STDIN_FILENO, &orig_term);
-    if (r < 0) {
-        printf("unable to save initial standard input settings\n");
-        return r;
-    }
-
-
-    term = orig_term;
-    term.c_iflag &= ~(ICRNL);
-    term.c_lflag &= ~(ICANON | ECHO | ISIG);
-    tcsetattr(STDIN_FILENO, TCSANOW, &term);
-
-
-    /* Use our own blocking thread to read stdin, don't require a tick */
-    // Keep receive the input of terminal, and ouput the result into the stdout
-    if(pthread_create(&term_poll_thread, NULL, term_poll_thread_loop, kvm))
-        perror("Unable to create console input poll thread\n");
-
-    signal(SIGTERM, term_sig_cleanup);
-    atexit(term_cleanup);
-
-    return 0;
 }
 
 void kvm__arch_read_term(struct kvm *kvm) {
@@ -653,7 +584,7 @@ int kvm__load_kernel(struct kvm *kvm) {
     if (read_in_full(fd_kernel, &boot, sizeof(boot)) != sizeof(boot))
         return -1;
 
-    if (memcmp(&boot.hdr.header, "HdrS", 4))
+    if (memcmp(&boot.hdr.header, BZIMAGE_MAGIC, strlen(BZIMAGE_MAGIC)))
         return -1;
 
     if (lseek(fd_kernel, 0, SEEK_SET) < 0)

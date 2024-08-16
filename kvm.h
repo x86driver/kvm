@@ -133,5 +133,7 @@ static struct irq_handler bios_irq_handlers[] = {
 
 void kvm__arch_read_term(struct kvm *kvm);
 void kvm__irq_line(struct kvm *kvm, int irq, int level);
+void *guest_flat_to_host(struct kvm *kvm, uint64_t offset);
+uint64_t host_to_guest_flat(struct kvm *kvm, void *ptr);
 
 #endif

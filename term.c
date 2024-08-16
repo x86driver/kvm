@@ -1,6 +1,5 @@
-#ifndef _TERMINAL_H_
-#define _TERMINAL_H_
-
+#include <stdio.h>
+#include <stdlib.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <poll.h>
@@ -9,11 +8,11 @@
 #include "kvm.h"
 
 static int term_fds[4][2];
-struct termios	orig_term;
+static struct termios	orig_term;
 
 static pthread_t term_poll_thread;
 
-int read_in_full_terminal(int fd, void *buf, size_t count) {
+static int read_in_full_terminal(int fd, void *buf, size_t count) {
     int total = 0;
     char *p = buf;
 
@@ -126,4 +125,40 @@ void term_sig_cleanup(int sig) {
     raise(sig);
 }
 
-#endif
+int term_init(struct kvm *kvm)
+{
+    struct termios term;
+    int i, r;
+
+    for (i = 0; i < 4; i++)
+        if (term_fds[i][0] == 0) {
+            term_fds[i][0] = STDIN_FILENO;
+            term_fds[i][1] = STDOUT_FILENO;
+        }
+
+    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO))
+        return 0;
+
+    r = tcgetattr(STDIN_FILENO, &orig_term);
+    if (r < 0) {
+        printf("unable to save initial standard input settings\n");
+        return r;
+    }
+
+
+    term = orig_term;
+    term.c_iflag &= ~(ICRNL);
+    term.c_lflag &= ~(ICANON | ECHO | ISIG);
+    tcsetattr(STDIN_FILENO, TCSANOW, &term);
+
+
+    /* Use our own blocking thread to read stdin, don't require a tick */
+    // Keep receive the input of terminal, and ouput the result into the stdout
+    if(pthread_create(&term_poll_thread, NULL, term_poll_thread_loop, kvm))
+        perror("Unable to create console input poll thread\n");
+
+    signal(SIGTERM, term_sig_cleanup);
+    atexit(term_cleanup);
+
+    return 0;
+}

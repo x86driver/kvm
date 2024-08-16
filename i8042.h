@@ -30,6 +30,16 @@ struct kbd_state {
 
 static struct kbd_state		state;
 
+static inline uint8_t ioport__read8(uint8_t *data)
+{
+    return *data;
+}
+
+static inline void ioport__write8(uint8_t *data, uint8_t value)
+{
+    *data		 = value;
+}
+
 static void kbd_update_irq(void)
 {
     uint8_t klevel = 0;
