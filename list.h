@@ -3,8 +3,6 @@
 
 #include <stddef.h>
 
-static const char *BZIMAGE_MAGIC = "HdrS";
-
 struct list_head {
     struct list_head *next, *prev;
 };

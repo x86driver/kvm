@@ -6,6 +6,7 @@
 #include "kvm.h"
 #include "term.h"
 #include "devices.h"
+#include "mmio.h"
 
 #define serial_iobase_0		0x3f8
 #define serial_iobase_1		0x2f8
