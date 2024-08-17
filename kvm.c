@@ -713,7 +713,7 @@ void *kvm_cpu__start(void *_cpu) {
     // always run the kvm
     while (1) {
         err = ioctl(cpu->vcpu_fd, KVM_RUN, 0);
-        if (err < 0)
+        if (err < 0 && (errno != EINTR && errno != EAGAIN))
             perror("KVM_RUN ioctl");
 
         // printf("switch kvm run exit reason: %d\n", cpu->kvm_run->exit_reason);
